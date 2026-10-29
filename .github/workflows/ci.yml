@@ -42,6 +42,6 @@ jobs:
           path: coverage.out
 
       - name: Report Code Coverage
-        uses: fgrosse/go-coverage-report@v1.2.0
+        uses: fgrosse/go-coverage-report@v1.5.0
         with:
           coverage-file-name: coverage.out
