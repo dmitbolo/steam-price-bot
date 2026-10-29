@@ -7,15 +7,20 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
-var (
-	ErrGameNotFound = errors.New("game not found or unavailable in steam")
-	ErrNoPriceData  = errors.New("game has no price (free-to-play or unreleased)")
+const (
+	defaultBaseURL = "https://store.steampowered.com"
+	MaxBatchSize   = 100
 )
 
-const defaultBaseURL = "https://store.steampowered.com"
+var (
+	ErrGameNotFound  = errors.New("game not found or unavailable in steam")
+	ErrNoPriceData   = errors.New("game has no price (free-to-play or unreleased)")
+	ErrBatchTooLarge = errors.New("batch size exceeds maximum limit of 100 app IDs")
+)
 
 type Client struct {
 	httpClient *http.Client
@@ -90,4 +95,42 @@ func (c *Client) doRequest(ctx context.Context, url string) (appDetailsResponse,
 	}
 
 	return result, nil
+}
+
+// GetBatchPrices requests current prices for a batch of games simultaneously (up to 100 items per single HTTP request).
+// Returns map[appID]price.
+func (c *Client) GetBatchPrices(ctx context.Context, appIDs []int) (map[int]int, error) {
+	if len(appIDs) == 0 {
+		return make(map[int]int), nil
+	}
+	if len(appIDs) > MaxBatchSize {
+		return nil, fmt.Errorf("%w: got %d", ErrBatchTooLarge, len(appIDs))
+	}
+
+	strIDs := make([]string, len(appIDs))
+	for i, id := range appIDs {
+		strIDs[i] = strconv.Itoa(id)
+	}
+
+	url := fmt.Sprintf(
+		"%s/api/appdetails?appids=%s&cc=%s&filters=price_overview",
+		c.baseURL, strings.Join(strIDs, ","), c.country,
+	)
+
+	data, err := c.doRequest(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+
+	prices := make(map[int]int, len(appIDs))
+	for _, appID := range appIDs {
+		appKey := strconv.Itoa(appID)
+		entry, ok := data[appKey]
+		if !ok || !entry.Success || entry.Data.PriceOverview == nil {
+			continue
+		}
+		prices[appID] = entry.Data.PriceOverview.Final / 100
+	}
+
+	return prices, nil
 }
