@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
+
 	"github.com/dmitbolo/steam-price-bot/internal/pipeline"
 	"github.com/dmitbolo/steam-price-bot/internal/steam"
 	"github.com/dmitbolo/steam-price-bot/internal/storage"
@@ -23,6 +25,8 @@ const (
 )
 
 func main() {
+	_ = godotenv.Load()
+
 	dbDSN := os.Getenv("DATABASE_URL")
 	if dbDSN == "" {
 		log.Fatal("DATABASE_URL environment variable is required")
