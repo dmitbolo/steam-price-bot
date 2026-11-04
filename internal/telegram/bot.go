@@ -52,11 +52,11 @@ func (b *Bot) Start(ctx context.Context) {
 // SendPriceAlert implements domain.Notifier, serving as the 4th stage (Sink) of the pipeline.
 func (b *Bot) SendPriceAlert(ctx context.Context, event domain.NotificationEvent) error {
 	text := fmt.Sprintf(
-		"🔥 Снижение цены на *%s*!\n\n"+
+		"🔥 Снижение цены на <b>%s</b>!\n\n"+
 			"Старый порог: %d\n"+
-			"Новая цена: *%d*\n\n"+
+			"Новая цена: <b>%d</b>\n\n"+
 			"https://store.steampowered.com/app/%d",
-		escapeMarkdown(event.GameName),
+		event.GameName,
 		event.OldPrice,
 		event.NewPrice,
 		event.AppID,
@@ -65,7 +65,7 @@ func (b *Bot) SendPriceAlert(ctx context.Context, event domain.NotificationEvent
 	_, err := b.client.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:    event.ChatID,
 		Text:      text,
-		ParseMode: models.ParseModeMarkdown,
+		ParseMode: models.ParseModeHTML,
 	})
 	if err != nil {
 		return fmt.Errorf("send telegram message: %w", err)
@@ -133,9 +133,4 @@ func (b *Bot) processUserMessage(ctx context.Context, chatID int64, text string)
 		"Подписка оформлена!\nИгра: %s\nТекущая цена в Steam: %d\nУведомлю, когда цена упадет ниже: %d",
 		gameName, currentPrice, req.TargetPrice,
 	)
-}
-
-func escapeMarkdown(s string) string {
-	replacer := strings.NewReplacer("_", "\\_", "*", "\\*", "[", "\\[", "`", "\\`")
-	return replacer.Replace(s)
 }
