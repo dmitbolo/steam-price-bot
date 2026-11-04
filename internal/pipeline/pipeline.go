@@ -27,7 +27,7 @@ func NewPricePipeline(
 		storage:   st,
 		steam:     sc,
 		notifier:  nf,
-		batchSize: steam.MaxBatchSize, // 100 игр за один запрос
+		batchSize: steam.MaxBatchSize,
 		rateLimit: rateLimit,
 	}
 }
