@@ -129,3 +129,68 @@ func chunkTasks(tasks []domain.GameWatchTask, chunkSize int) [][]domain.GameWatc
 
 	return chunks
 }
+
+// RunCheckCycle triggers all pipeline stages sequentially and blocks until all notifications are fully processed.
+func (p *PricePipeline) RunCheckCycle(ctx context.Context) {
+	log.Println("[Pipeline] starting daily price check cycle...")
+
+	batchesCh := p.stageLoadBatches(ctx)
+	pricesCh := p.stageFetchBatchPrices(ctx, batchesCh)
+	alertsCh := p.stageEvaluateAndSave(ctx, pricesCh)
+
+	p.stageSendNotifications(ctx, alertsCh)
+
+	log.Println("[Pipeline] price check cycle completed.")
+}
+
+// stageEvaluateAndSave (Stage 3) matches the current price against each subscriber's target price.
+// If the price drops below the threshold, it updates the database and yields a notification event.
+func (p *PricePipeline) stageEvaluateAndSave(
+	ctx context.Context,
+	in <-chan domain.EnrichedGameTask,
+) <-chan domain.NotificationEvent {
+	out := make(chan domain.NotificationEvent)
+
+	go func() {
+		defer close(out)
+
+		for item := range in {
+			for _, sub := range item.Task.Subscriptions {
+				if item.CurrentPrice < sub.TargetPrice {
+					if err := p.storage.UpdateTargetPrice(ctx, sub.ID, item.CurrentPrice); err != nil {
+						log.Printf("[Pipeline Stage 3] failed to update target price for sub %d: %v", sub.ID, err)
+						continue
+					}
+
+					event := domain.NotificationEvent{
+						ChatID:   sub.ChatID,
+						AppID:    sub.AppID,
+						GameName: item.Task.GameName,
+						OldPrice: sub.TargetPrice,
+						NewPrice: item.CurrentPrice,
+					}
+
+					select {
+					case <-ctx.Done():
+						return
+					case out <- event:
+					}
+				}
+			}
+		}
+	}()
+
+	return out
+}
+
+// stageSendNotifications (Stage 4 / Sink) consumes events from the channel and transmits alerts via Telegram.
+func (p *PricePipeline) stageSendNotifications(ctx context.Context, in <-chan domain.NotificationEvent) {
+	for event := range in {
+		if ctx.Err() != nil {
+			return
+		}
+		if err := p.notifier.SendPriceAlert(ctx, event); err != nil {
+			log.Printf("[Pipeline Stage 4] failed to send alert to chat %d: %v", event.ChatID, err)
+		}
+	}
+}
