@@ -2,15 +2,20 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/dmitbolo/steam-price-bot/internal/domain"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var _ domain.Storage = (*PostgresStorage)(nil)
 
 type PostgresStorage struct {
 	pool *pgxpool.Pool
 }
+
+var ErrSubscriptionNotFound = errors.New("subscription not found")
 
 // // NewPostgresStorage creates a PostgreSQL connection pool and checks database availability.
 func NewPostgresStorage(ctx context.Context, dsn string) (*PostgresStorage, error) {
@@ -107,4 +112,26 @@ func groupSubscriptionsByAppID(subs []domain.Subscription) []domain.GameWatchTas
 	}
 
 	return tasks
+}
+
+// UpdateTargetPrice updates the subscription price threshold to a new (lower) value,
+// ensuring that the next notification is triggered only upon a further price drop.
+func (s *PostgresStorage) UpdateTargetPrice(ctx context.Context, subID int64, newPrice int) error {
+	const query = `
+		UPDATE subscriptions
+		SET target_price = $1,
+		    updated_at   = NOW()
+		WHERE id = $2;
+	`
+
+	cmdTag, err := s.pool.Exec(ctx, query, newPrice, subID)
+	if err != nil {
+		return fmt.Errorf("update target price: %w", err)
+	}
+
+	if cmdTag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: id %d", ErrSubscriptionNotFound, subID)
+	}
+
+	return nil
 }
